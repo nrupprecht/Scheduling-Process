@@ -1,74 +1,10 @@
 #include "../experiments.hpp"
-#include "../ArgParse.hpp"
-
-#include <fstream>
-
-void generate_events(vector<pair<float,float>>& left, vector<pair<float,float>>& right, float rhoL, float rhoR, float time) {
-  // Clear vectors.
-  left.clear();
-  right.clear();
-  // Generate some events.
-  int nL = rhoL*time, nR = rhoR*time;
-  for (int i=0; i<nL; ++i) {
-    float t1 = drand48()*time;
-    left.push_back(std::make_pair(t1, 1.f));
-  }
-  for (int i=0; i<nR; ++i) {
-    float t2 = drand48()*time;
-    right.push_back(std::make_pair(t2, 1.f));
-  }
-}
-
-template<typename S, typename T> inline bool print_to_csv(const vector<pair<S, T> >& data, const string& fileName) {
-  if (data.empty()) return true;
-  std::ofstream fout(fileName);
-  if (fout.fail()) {
-    cout << "Could not open file [" << fileName << "].\n";
-    return false;
-  }
-  for (const auto& pr : data) fout << pr.first << "," << pr.second << "\n";
-  fout.close();
-  return true;
-}
-
-template<typename T> inline bool print_to_csv(const vector<T>& data, const string& fileName) {
-  if (data.empty()) return true;
-  std::ofstream fout(fileName);
-  if (fout.fail()) {
-    cout << "Could not open file [" << fileName << "].\n";
-    return false;
-  }
-  for (int i=0; i<data.size(); ++i) {
-    fout << data[i];
-    if (i!=data.size()-1) fout << ",";
-  }
-  fout.close();
-  return true;
-}
-
-template<typename T> inline bool print_to_csv(const vector<vector<T> >& data, const string& fileName) {
-  if (data.empty()) return true;
-  std::ofstream fout(fileName);
-  if (fout.fail()) {
-    cout << "Could not open file [" << fileName << "].\n";
-    return false;
-  }
-  for (const auto& entry : data) {
-    for (int i=0; i<entry.size(); ++i) {
-      fout << entry[i];
-      if (i!=entry.size()-1) fout << ",";
-    }
-    fout << "\n";
-  }
-  fout.close();
-  return true;
-}
 
 int main(int argc, char **argv) {
   // Parameters.
   int trials = 100;
-  int macro_bin_size = 10;
-  float total_time = 1.f;
+  int granularity = 10;
+  float total_time = 10.f;
   float macro_bin_time = 0.05;
   float rhoL = 50, rhoR = 50;
   string name = "data.csv";
@@ -76,7 +12,7 @@ int main(int argc, char **argv) {
   // Parse command line args.
   ArgParse parser(argc, argv);
   parser.get("trials", trials);
-  parser.get("bins", macro_bin_size);
+  parser.get("bins", granularity);
   parser.get("time", total_time);
   parser.get("tau", macro_bin_time);
   parser.get("rhoL", rhoL);
@@ -95,54 +31,42 @@ int main(int argc, char **argv) {
   srand48(time(0));
   // Create experiment handler.
   Experiments experiments;
-  experiments.setMacroBinSize(macro_bin_size);
-  experiments.setTotalTime(total_time);
+  experiments.setGranularity(granularity);
+  experiments.setTimeSight(total_time);
   experiments.setMacroBinTime(macro_bin_time);
 
+  // ------ Experiments ------ //
 
+  experiments.simulate_number_demon(10, 1, 50, 50);
+
+  // --> Look at the S_t/S^*_t stochastic process
+  // experiments.run_single(rhoL, rhoR);
+  // auto process = experiments.get_score_structure();
+  // print_to_csv(process, "process.csv");
+
+  // --> Generate many scores.
+  // vector<float> score_record;
+  // experiments.setTimeSight(total_time);
+  // experiments.generate_scores(score_record, trials, rhoL, rhoR);
+  // print_to_csv(score_record, name);
   
-  vector<float> score_record;
-  experiments.setTotalTime(total_time);
-  experiments.generate_scores(score_record, trials, rhoL, rhoR);
-  print_to_csv(score_record, "histogram-35.csv");
-
-
-  // vector<point> growth;
+  // --> See how averege performance (per unit time) changes as total time increases.
+  // vector<vector<float> > growth;
   // int divisions = 20;
-  // experiments.score_vary_total_time(growth, rhoL, rhoR, 0.5, 20., divisions, trials);
+  // float min_t = 0.5f, max_t = 20.f;
+  // experiments.score_vary_total_time(growth, rhoL, rhoR, min_t, max_t, divisions, trials);
   // print_to_csv(growth, name);
 
   
   // --> See how max score varies as the macro bin granularity increases.
-  /*
-  // Count events.
-  vector<pair<int,float> > data;
-  for (int b=2; b<=100; ++b) {
-    float average_ratio = 0.f;
-    // Set macro bin size.
-    schedule.set_macro_bin_size(b);
-    // Do some number of trials.
-    for (int i=0; i<trials; ++i) {
-      // Create new events.
-      generate_events(left, right, rhoL, rhoR, total_time);
-      schedule.set_events(left, right);
-      // Find the maximum and baseline score.
-      float max_score = schedule.max_score();
-      float base_line_score = schedule.base_line_score();
-      // Calculate ratio.
-      average_ratio += max_score/base_line_score;
-    }
-    average_ratio /= trials;
-    data.push_back(make_pair(b, average_ratio));
-  }
-  // Print data to csv.
-  print_to_csv(data, "data.csv");
-  */
+  // vector<pair<int,float> > data;
+  // experiments.score_vary_bin_granularity(data, 1, granularity, 1, trials, rhoL, rhoR);
+  // print_to_csv(data, name);
   
 
   // --> Look at the average structure record.
   /*
-  schedule.set_macro_bin_size(macro_bin_size);
+  schedule.set_macro_bin_size(granularity);
   // Run a first time to initialize.
   generate_events(left, right, rhoL, rhoR, total_time);
   schedule.set_events(left, right);
