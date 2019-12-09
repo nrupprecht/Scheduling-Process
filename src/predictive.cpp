@@ -273,12 +273,12 @@ inline void Schedule::compute_micro_bin_scores() {
   for (const auto pr : left_events) {
     float t = pr.first, sc = pr.second;
     int bin = static_cast<int>((t - current_time)/micro_bin_time);
-    if (bin<total_micro_bins) micro_bin_scores[bin] += sc;
+    if (0<=bin && bin<total_micro_bins) micro_bin_scores[bin] += sc;
   }
   for (const auto pr : right_events) {
     float t = pr.first, sc = pr.second;
     int bin = static_cast<int>((t-current_time)/micro_bin_time);
-    if (bin<total_micro_bins) micro_bin_scores[bin] -= sc;
+    if (0<=bin && bin<total_micro_bins) micro_bin_scores[bin] -= sc;
   }
 }
 
