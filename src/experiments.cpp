@@ -168,7 +168,7 @@ void Experiments::number_demon_vary_time_sight(vector<point>& data, float time, 
       ave_score += simulate_number_demon(time, t_sight);
     }
     ave_score /= trials;
-    data.push_back(pair(t_sight, ave_score));
+    data.push_back(make_pair(t_sight, ave_score));
   }
 }
 
@@ -262,7 +262,7 @@ float Experiments::simulate_number_demon(float time, float t_sight) {
   }
   // Add in the rest of the binning.
   for (; i<binning.size(); ++i)
-    finite_demon_binning.push_back(pair(binning[i].first + cumulative_bins, binning[i].second + cumulative_bins));
+    finite_demon_binning.push_back(make_pair(binning[i].first + cumulative_bins, binning[i].second + cumulative_bins));
 
   // Total up the rest of the score.
   total_score += max_score;

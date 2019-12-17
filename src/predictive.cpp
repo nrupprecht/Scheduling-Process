@@ -310,13 +310,13 @@ inline void Schedule::compute_score_structure(int micro_bins) {
   }
 
   // Initialize last [macro_bin_size] entries.
-  int i=1, index = micro_bins - 1;
+  int i = 1, index = micro_bins - 1;
   cumulative_score = micro_bin_scores[index];
   // Last entry
   score_structure[index].first = std::max(cumulative_score, 0.f);
   score_structure[index].second = std::max(cumulative_score, 0.f);
   --index;
-  for (i=0; i<macro_bin_size; ++i, --index) {
+  for (; i<macro_bin_size && i<micro_bins; ++i, --index) {
     cumulative_score += micro_bin_scores[index];
     score_structure[index].first = std::max(micro_bin_scores[index] + score_structure[index+1].first, 0.f);
     score_structure[index].second = std::max(cumulative_score, score_structure[index + 1].second);
