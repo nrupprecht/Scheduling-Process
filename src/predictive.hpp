@@ -3,10 +3,6 @@
 
 #include "predictive-utility.hpp"
 
-template<typename T> inline T max(const T a, const T b) {
-  return a>b ? a : b;
-}
-
 typedef pair<float,float> point;
 
 class Schedule {
@@ -24,11 +20,21 @@ public:
   //! for some # of microbins.
   float max_score(bool, int);
 
+  //! \brief Find the max score GIVEN THAT the door can be either open or closed at this point (a decision can be freely made) and 
+  //! the door was either open/closed beforehand.
+  float max_score(bool);
+
   //! \brief Find the (best) baseline score, using as small bins as possible.
   float base_line_score();
 
   //! \brief Get the score of a set of open intervals.
   float get_score(const vector<pair<int,int> >&);
+
+  //! \brief Get the score of a set of open intervals, only counting events between some min and max times.
+  float get_score(const vector<pair<int,int> >&, float, float);
+
+  //! \brief Get the score of a microbin.
+  float get_bin_score(int) const;
 
   //! \brief Make sure a binning is valid, that the lengths of open and closed intervals is at least macro_bin_size.
   bool valid_binning(const vector<pair<int,int> >&);
@@ -36,7 +42,10 @@ public:
   //! \brief Return a binning that yields the optimal score.
   //!
   //! Returns the periods where the door was open.
-  vector<pair<int, int> > optimal_binning();
+  vector<pair<int, int> > optimal_binning(bool=true, int=-1);
+
+  //! \brief Create and compute the micro bin score vector.
+  void compute_micro_bin_scores(int=-1);
 
   // --- Mutators
 
@@ -66,15 +75,21 @@ public:
   //! \brief Get the macro bin time.
   float get_macro_bin_time() { return macro_bin_time; }
 
+  //! \brief Get the micro bin time.
+  float get_micro_bin_time() { return micro_bin_time; }
+
   //! \brief Get the time sight.
   float get_time_sight() { return time_sight; }
 
-private:
-  //! \brief Compute the schedule structure. Used for finding the max score.
-  inline void compute_score_structure();
+  //! \brief Get the granularity - the number of microbins per (minimal) macrobin.
+  int get_granularity() { return macro_bin_size; }
 
-  //! \brief Create and compute the micro bin score vector.
-  inline void compute_micro_bin_scores();
+  //! \brief Get the total number of microbins.
+  int get_total_micro_bins() { return total_micro_bins; }
+
+//private:
+  //! \brief Compute the schedule structure. Used for finding the max score.
+  inline void compute_score_structure(int=-1);
 
   //! \brief Reset everything.
   inline void reset();
@@ -91,8 +106,8 @@ private:
   //! \brief The time length of a macro bin.
   float macro_bin_time = 0.01f;
 
-  //! \brief The minimun number of bins that can be used in a macro bin.
-  int macro_bin_size = 5;
+  //! \brief The minimun number of bins that can be used in a macro bin, i.e. the granularity of the macrobin.
+  int macro_bin_size = 25;
 
   //! \brief The micro bin length, in seconds.
   //!

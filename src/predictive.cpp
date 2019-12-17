@@ -55,6 +55,9 @@ float Schedule::max_score() {
     exit(0);
   }
 
+  // If there is no time (aka microbins), return 0.
+  if (total_micro_bins==0) return 0.f;
+
   // Compute the score structure.
   compute_score_structure();
 
@@ -69,9 +72,9 @@ float Schedule::max_score() {
     float s1 = cumulative_score + score_structure[macro_bin_size-i].first;
     // Closed
     float s2 = score_structure[macro_bin_size-i].second;
-    optimal_score = max(max(s1, s2), optimal_score);
+    optimal_score = std::max(std::max(s1, s2), optimal_score);
   }
-  optimal_score = max(max(score_structure[0].first, score_structure[0].second), optimal_score);
+  optimal_score = std::max(std::max(score_structure[0].first, score_structure[0].second), optimal_score);
 
   // Return the optimal score.
   return optimal_score;
@@ -79,13 +82,13 @@ float Schedule::max_score() {
 
 float Schedule::max_score(bool is_open, int micro_bins_in_current_state) {
   // If an optimal score is stored, then the score structure is as well.
-  if (optimal_score==-1) compute_score_structure();
+  compute_score_structure();
 
   // For how many micro bins must the gate remain open/closed.
-  int remaining_bins_in_state = max(macro_bin_size - micro_bins_in_current_state, 0);
+  int remaining_bins_in_state = std::max(macro_bin_size - micro_bins_in_current_state, 0);
 
   // If we can choose freely whether we want the gate to be open or closed from the start, then the conditioning does not matter.
-  if (remaining_bins_in_state==0) {
+  if (remaining_bins_in_state==0 || micro_bins_in_current_state==-1) {
     if (0<=optimal_score) return optimal_score;
     else return max_score();
   }
@@ -97,7 +100,7 @@ float Schedule::max_score(bool is_open, int micro_bins_in_current_state) {
     for (int i=0; i<remaining_bins_in_state && i<micro_bin_scores.size(); ++i) optimal_score += micro_bin_scores[i];
     // After having to leave the door open for the required amount of time, choose the best thing to do.
     if (remaining_bins_in_state<score_structure.size())
-      optimal_score += max(score_structure[remaining_bins_in_state].first, score_structure[remaining_bins_in_state].second);
+      optimal_score += std::max(score_structure[remaining_bins_in_state].first, score_structure[remaining_bins_in_state].second);
   }
   else { // Gate has been closed
     if (remaining_bins_in_state<score_structure.size())
@@ -108,9 +111,19 @@ float Schedule::max_score(bool is_open, int micro_bins_in_current_state) {
   return optimal_score;
 }
 
+float Schedule::max_score(bool is_open) {
+  // If an optimal score is stored, then the score structure is as well.
+  compute_score_structure();
+
+  if (is_open) optimal_score = score_structure[0].first;
+  else optimal_score = score_structure[0].second;
+
+  return optimal_score;
+}
+
 float Schedule::base_line_score() {
   // Make sure micro bin scores have been computed.
-  if (micro_bin_scores.empty()) compute_micro_bin_scores();
+  compute_micro_bin_scores();
 
   float baseline_score = 0, test_score = 0;
   // The first bin can be 1 - macro_bin_size, so we try them all.
@@ -121,17 +134,17 @@ float Schedule::base_line_score() {
     for (int t=0; t<=start; ++t) score += micro_bin_scores[t];
 
     // Decide whether macro bin should be open or closed.
-    test_score += max(0.f, score);
+    test_score += std::max(0.f, score);
     // Find total for each macro bin.
     for (int t=start+1; t<total_micro_bins; t+=macro_bin_size) {
       // Compute score for this macro bin.
       score = 0.f;
       for (int i=t; i<total_micro_bins && i<t+macro_bin_size; ++i) score += micro_bin_scores[i];
       // Decide whether macro bin should be open or closed.
-      test_score += max(0.f, score);
+      test_score += std::max(0.f, score);
     }
     // Done with this test score. Is it better than any previous test score?
-    baseline_score = max(test_score, baseline_score);
+    baseline_score = std::max(test_score, baseline_score);
   }
   // Return.
   return baseline_score;
@@ -139,15 +152,34 @@ float Schedule::base_line_score() {
 
 float Schedule::get_score(const vector<pair<int,int>>& binning) {
   // Make sure micro bin scores have been computed.
-  if (micro_bin_scores.empty()) compute_micro_bin_scores();
+  compute_micro_bin_scores();
   // Calculate the score.
   float score = 0;
   for (auto pr : binning) {
-    int start = pr.first, end = pr.second;
+    int start = std::max(pr.first, 0), end = std::min(pr.second, static_cast<int>(micro_bin_scores.size()-1));
     for (int i=start; i<=end; ++i) score += micro_bin_scores[i];
   }
   // Return the score.
   return score;
+}
+
+float Schedule::get_score(const vector<pair<int,int> >& binning, float min_t, float max_t) {
+  // Make sure micro bin scores have been computed.
+  compute_micro_bin_scores();
+  // Calculate the score.
+  float score = 0;
+  int min_bin = (min_t - current_time)/micro_bin_time;
+  int max_bin = (max_t - current_time)/micro_bin_time;
+  for (auto pr : binning) {
+    int start = std::max(pr.first, 0), end = std::min(pr.second, static_cast<int>(micro_bin_scores.size()-1));
+    for (int i=std::max(start, min_bin); i<=std::min(end, max_bin); ++i) score += micro_bin_scores[i];
+  }
+  // Return the score.
+  return score;
+}
+
+float Schedule::get_bin_score(int b) const {
+  return micro_bin_scores[b];
 }
 
 bool Schedule::valid_binning(const vector<pair<int,int> >& binning) {
@@ -161,35 +193,46 @@ bool Schedule::valid_binning(const vector<pair<int,int> >& binning) {
   return true;
 }
 
-vector<pair<int, int> > Schedule::optimal_binning() {
+vector<pair<int, int> > Schedule::optimal_binning(bool is_open, int micro_bins_in_current_state) {
   // If the optimal score has not yet been calculated, calculate it.
-  if (optimal_score==-1) max_score();
+  max_score(is_open, micro_bins_in_current_state);
 
+  // Keep track of whether the door is open or closed.
   bool open = false;
-  int s0 = 0;
-  float cumulative_score = 0.f, optimal_score = 0.f;
-  for (int i=macro_bin_size-1; 1<=i; --i) {
-    // Update cumulative score.
-    cumulative_score += micro_bin_scores[macro_bin_size-i-1];
+  // s0 is how long the door has been open before the start of time.
+  int s0 = 0, time = 0, open_time = 0;
 
-    float s1 = cumulative_score + score_structure[macro_bin_size-i].first;
-    float s2 = score_structure[macro_bin_size-i].second;
-
-    if (s1==optimal_score) {
-      s0 = macro_bin_size - i;
-      open = true;
-      break;
+  // If allowed, find the optimal state to start in (door can be open less than a full macrobin length).
+  if (micro_bins_in_current_state<0 || macro_bin_size<=micro_bins_in_current_state) {
+    float cumulative_score = 0.f;
+    for (int i=0; i<macro_bin_size; ++i) {
+      // Update cumulative score.
+      cumulative_score += micro_bin_scores[i];
+      // Candidate scores.
+      float s1 = cumulative_score + score_structure[i+1].first;
+      float s2 = score_structure[i+1].second;
+      // Check if one is an optimal score (and therefore a valid starting point for an optimal binning).
+      if (s1==optimal_score) {
+        time = i;
+        open = true;
+        break;
+      }
+      if (s2==optimal_score) {
+        time = i;
+        open = false;
+        break;
+      }
     }
-    if (s1==optimal_score) {
-      s0 = s0 = macro_bin_size - i;
-      open = false;
-      break;
-    }
+    // No partial opening time achieved an optimal score. The optimal score must start from the beginning (time=0).
+    if (time==0 && score_structure[0].first>score_structure[0].second) open = true;
   }
-  if (s0==0 && score_structure[0].first>score_structure[0].second) open = true;
+  // Otherwise, there are restrictions on how whether the door was open or closed, and for how long it was in that state.
+  else {
+    open = is_open;
+    time = macro_bin_size - micro_bins_in_current_state;
+  }
 
   // Move forward in time, finding a schedule that would result in the optimal score.
-  int time=0, open_time = 0;
   vector<pair<int, int> > binning;
   while (time<total_micro_bins-1) {
     if (open) {
@@ -198,8 +241,7 @@ vector<pair<int, int> > Schedule::optimal_binning() {
       else {
         open = false;
         if (time>0) binning.push_back(std::make_pair(open_time, time-1));
-        time += (macro_bin_size-s0);
-        s0 = 0;
+        time += (macro_bin_size);
       }
     }
     // Door was closed.
@@ -208,8 +250,7 @@ vector<pair<int, int> > Schedule::optimal_binning() {
       else {
         open = true;
         open_time = time;
-        time += (macro_bin_size-s0);
-        s0 = 0;
+        time += (macro_bin_size);
       }
     }
   }
@@ -228,67 +269,73 @@ vector<pair<int, int> > Schedule::optimal_binning() {
   return binning;
 }
 
-inline void Schedule::compute_score_structure() {
-  if (score_structure.empty()) score_structure = vector<point>(total_micro_bins, make_pair(0.f, 0.f));
+void Schedule::compute_micro_bin_scores(int micro_bins) {
+  if (micro_bins<0) micro_bins = total_micro_bins;
+  // Find a score for each micro bin.
+  micro_bin_scores = vector<float>(micro_bins, 0);
+  for (const auto pr : left_events) {
+    float t = pr.first, sc = pr.second;
+    int bin = static_cast<int>(floor((t-current_time)/micro_bin_time));
+    if (0<=bin && bin<micro_bins) micro_bin_scores[bin] += sc;
+  }
+  for (const auto pr : right_events) {
+    float t = pr.first, sc = pr.second;
+    int bin = static_cast<int>(floor((t-current_time)/micro_bin_time));
+    if (0<=bin && bin<micro_bins) micro_bin_scores[bin] -= sc;
+  }
+}
+
+inline void Schedule::compute_score_structure(int micro_bins) {
+  if (micro_bins<0) micro_bins = total_micro_bins;
+  else {
+    score_structure.clear();
+    micro_bin_scores.clear();
+  }
+
+  if (score_structure.empty()) score_structure = vector<point>(micro_bins, make_pair(0.f, 0.f));
   // Make sure micro bin scores have been computed.
-  if (micro_bin_scores.empty()) compute_micro_bin_scores();
+  if (micro_bin_scores.empty()) compute_micro_bin_scores(micro_bins);
   
   // Compute window score.
-  vector<float> window_score(total_micro_bins, 0.f);
+  vector<float> window_score(micro_bins, 0.f);
   float cumulative_score = 0.f;
   for (int i=0; i<macro_bin_size; ++i) cumulative_score += micro_bin_scores[i];
   window_score[0] = cumulative_score;
-  for (int i=1; i<total_micro_bins - macro_bin_size; ++i) {
+  for (int i=1; i<micro_bins - macro_bin_size; ++i) {
     // Loss from the score at that is now behind the bin.
     cumulative_score -= micro_bin_scores[i-1];
     // Gain from the score at the end of the bin.
-    if (i+macro_bin_size-1<total_micro_bins) cumulative_score += micro_bin_scores[i+macro_bin_size-1];
+    if (i+macro_bin_size-1<micro_bins) cumulative_score += micro_bin_scores[i+macro_bin_size-1];
     window_score[i] = cumulative_score;
   }
 
   // Initialize last [macro_bin_size] entries.
-  int i=1, index = total_micro_bins - 1;
+  int i=1, index = micro_bins - 1;
   cumulative_score = micro_bin_scores[index];
   // Last entry
-  score_structure[index].first = max(cumulative_score, 0.f);
-  score_structure[index].second = max(cumulative_score, 0.f);
+  score_structure[index].first = std::max(cumulative_score, 0.f);
+  score_structure[index].second = std::max(cumulative_score, 0.f);
   --index;
   for (i=0; i<macro_bin_size; ++i, --index) {
     cumulative_score += micro_bin_scores[index];
-    score_structure[index].first = max(micro_bin_scores[index] + score_structure[index+1].first, 0.f);
-    score_structure[index].second = max(cumulative_score, score_structure[index + 1].second);
+    score_structure[index].first = std::max(micro_bin_scores[index] + score_structure[index+1].first, 0.f);
+    score_structure[index].second = std::max(cumulative_score, score_structure[index + 1].second);
   }
   // Propogate solution backwards.
-  index = total_micro_bins - 1 - macro_bin_size;
-  for (; i<total_micro_bins; ++i) {
-    score_structure[index].first = max(score_structure[index+1].first + micro_bin_scores[index], score_structure[index+macro_bin_size].second);
-    score_structure[index].second = max(score_structure[index+macro_bin_size].first + window_score[index], score_structure[index+1].second);
+  index = micro_bins - 1 - macro_bin_size;
+  for (; i<micro_bins; ++i) {
+    score_structure[index].first = std::max(score_structure[index+1].first + micro_bin_scores[index], score_structure[index+macro_bin_size].second);
+    score_structure[index].second = std::max(score_structure[index+macro_bin_size].first + window_score[index], score_structure[index+1].second);
     --index;
-  }
-}
-
-inline void Schedule::compute_micro_bin_scores() {
-  // Find a score for each micro bin.
-  micro_bin_scores = vector<float>(total_micro_bins, 0);
-  for (const auto pr : left_events) {
-    float t = pr.first, sc = pr.second;
-    int bin = static_cast<int>((t - current_time)/micro_bin_time);
-    if (0<=bin && bin<total_micro_bins) micro_bin_scores[bin] += sc;
-  }
-  for (const auto pr : right_events) {
-    float t = pr.first, sc = pr.second;
-    int bin = static_cast<int>((t-current_time)/micro_bin_time);
-    if (0<=bin && bin<total_micro_bins) micro_bin_scores[bin] -= sc;
   }
 }
 
 inline void Schedule::reset() {
   // Recalculate times and sizes.
   micro_bin_time = macro_bin_time / macro_bin_size;
-  total_micro_bins = static_cast<int>(floor(time_sight / micro_bin_time));
+  total_micro_bins = static_cast<int>(ceil(time_sight / micro_bin_time));
   // Clear optimal score and data structures.
   optimal_score = -1.f;
   micro_bin_scores.clear();
   score_structure.clear();
 }
-

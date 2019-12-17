@@ -1,7 +1,7 @@
 #include "experiments.hpp"
 
 Experiments::Experiments() {
-  if(seed==0) seed = static_cast<unsigned>(std::chrono::system_clock::now().time_since_epoch().count());
+  seed = static_cast<unsigned>(std::chrono::system_clock::now().time_since_epoch().count());
   generator = std::mt19937(seed);
 }
 
@@ -26,11 +26,7 @@ void Experiments::generate_events(vector<point>& left, vector<point>& right, flo
   }
 }
 
-point Experiments::run_single(float rhoL, float rhoR) {
-  // Generate some events.
-  vector<point> left, right;
-  generate_events(left, right, rhoL, rhoR, total_time);
-  schedule.set_events(left, right);
+point Experiments::score() {
   // Find max and baseline scores.
   float ms = schedule.max_score();
   float bs = schedule.base_line_score();
@@ -159,30 +155,179 @@ void Experiments::score_vary_bin_granularity(vector<pair<int,float> >& data, int
   }
 }
 
-void Experiments::simulate_number_demon(float time, float t_sight, float rhoL, float rhoR) {
+void Experiments::number_demon_vary_time_sight(vector<point>& data, float time, float min_t_sight, float max_t_sight, int bins, int trials, float rhoL, float rhoR) {
+  // Make sure the data vector is empty.
+  data.clear();
+  // Run all time sights [trials] number of times.
+  float dsight = (max_t_sight - min_t_sight)/(bins-1);
+  for (int b=0; b<bins; ++b) {
+    float t_sight = min_t_sight + b*dsight;
+    float ave_score = 0.f;
+    for (int iter=0; iter<trials; ++iter) {
+      generate_number_events(rhoL, rhoR);
+      ave_score += simulate_number_demon(time, t_sight);
+    }
+    ave_score /= trials;
+    data.push_back(pair(t_sight, ave_score));
+  }
+}
 
+float Experiments::simulate_number_demon(float time, float t_sight) {
+  // Set total time and time sight.
   setTotalTime(time);
   setTimeSight(t_sight);
+  // Set up / get some data.
   float current_time = 0.f;
+  float micro_bin_time = schedule.get_micro_bin_time();
+  int granularity = schedule.get_granularity();
+  int total_micro_bins = schedule.get_total_micro_bins();
 
+  // Initial best scheduling.
+  float max_score = schedule.max_score();
+  vector<pair<int, int>> binning = schedule.optimal_binning();
+
+  vector<pair<int, int>> finite_demon_binning;
+  point current_bin;
+
+  bool is_open = (!binning.empty() && binning[0].first==0);
+  if (is_open) current_bin.first = 0;
+
+  // How long the door has been in the same state and how many time bins have gone by.
+  int state_length = granularity, cumulative_bins = 0; 
+  float total_score = 0.f;
+  while (current_time + t_sight < time) {
+    // Find next point when we can recalculate the optimal binning, and what the score is between now and then.
+    int move_bins; // Number of microbins to move forward.
+
+    // --- Determine how far ahead in time we have to move.
+
+    // If the door should open (if binning is empty, door should be closed the entire time).
+    if (!binning.empty() && binning[0].first==0) {
+      if (is_open) { // If the door was open.
+        move_bins = 1;
+        ++state_length;
+      }
+      else { // If the door was closed, door should OPEN.
+        move_bins = granularity;
+        state_length = granularity;
+        // Door opens.
+        current_bin.first = cumulative_bins;
+      }
+      is_open = true;
+    }
+    // If the door should be closed.
+    else {
+      if (is_open) { // If the door was open, door should CLOSE.
+        move_bins = granularity;
+        state_length = granularity;
+        // Door closes
+        current_bin.second = cumulative_bins-1;
+        finite_demon_binning.push_back(current_bin);
+      }
+      else { // Door was already closed
+        move_bins = 1;
+        ++state_length;
+      }
+      is_open = false;
+    }
+
+    // Tally up score between now and the new time.
+    if (is_open)
+      for (int i=0; i<move_bins; ++i)
+        total_score += schedule.get_bin_score(i);
+
+    // Advance time.
+    current_time += move_bins*micro_bin_time;
+    cumulative_bins += move_bins;
+    
+    // Move schedule time forward.
+    schedule.set_current_time(current_time);
+    schedule.set_time_sight(std::min(t_sight, time - current_time));
+    // Compute new max score/optimal binning.
+    max_score = schedule.max_score(is_open, state_length);
+    binning = schedule.optimal_binning(is_open, state_length);
+  }
+
+  // --- Add the rest of the binning to the demon's binning.
+  int i=0;
+  // If door is open, remember that.
+  if (is_open) {
+    // If the bin extends onwards.
+    if (!binning.empty() && binning[0].first==0) {
+      current_bin.second = binning[0].second + cumulative_bins;
+      ++i;
+    }
+    else current_bin.second = cumulative_bins-1;
+    finite_demon_binning.push_back(current_bin);
+  }
+  // Add in the rest of the binning.
+  for (; i<binning.size(); ++i)
+    finite_demon_binning.push_back(pair(binning[i].first + cumulative_bins, binning[i].second + cumulative_bins));
+
+  // Total up the rest of the score.
+  total_score += max_score;
+
+
+
+  // cout << "Final bit of demon:\n";
+  // for (auto p : binning)
+  //   cout << "(" << p.first + cumulative_bins << ", " << p.second + cumulative_bins << ") ";
+  // cout << endl << "Score: " << max_score << endl << endl;
+
+  // cout << "Final binning:\n";
+  // for (auto p : finite_demon_binning)
+  //   cout << "(" << p.first << ", " << p.second << ") ";
+  // cout << endl;
+
+
+  // resetTimes();
+  // schedule.compute_micro_bin_scores();
+  // cout << "Check: " << schedule.get_score(finite_demon_binning) << endl;
+  // cout << "Vs: " << total_score << endl;
+
+
+  // Return the total score for the sight limited demon.
+  return total_score;
+}
+
+void Experiments::generate_number_events(float rhoL, float rhoR) {
   // Generate all events.
   vector<point> left, right;
   generate_events(left, right, rhoL, rhoR, total_time);
   schedule.set_events(left, right);
+}
 
-  // Generate first guess at a good schedule.
-  cout << schedule.max_score() << endl;
-  auto binning = schedule.optimal_binning();
+//! \brief Set the macro bin size.
+void Experiments::setGranularity(int b) {
+  schedule.set_granularity(b);
+}
 
-  while (current_time + time_sight < total_time) {
-    current_time += 1.f;
-    schedule.set_current_time(current_time);
+//! \brief Set the time length of a macrobin.
+void Experiments::setMacroBinTime(float t) {
+  schedule.set_macro_bin_time(t);
+}
 
-    float max_s = schedule.max_score();
+//! \brief Set the total time that we generate events for.
+void Experiments::setTotalTime(float t) {
+  if (t>0) total_time = t;
+}
 
-    cout << max_s << endl;
+//! \brief Set the time sight of the schedule.
+void Experiments::setTimeSight(float t) {
+  if (t>0) {
+    time_sight = t;
+    schedule.set_time_sight(t);
+    if (time_sight>total_time) 
+      setTotalTime(time_sight);
   }
+}
 
+void Experiments::resetTimes() {
+  setTimeSight(total_time);
+  schedule.set_current_time(0);
+}
 
-
+void Experiments::setSeed(unsigned s) {
+  seed = s;
+  generator = std::mt19937(seed);
 }

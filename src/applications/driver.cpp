@@ -5,19 +5,23 @@ int main(int argc, char **argv) {
   int trials = 100;
   int granularity = 10;
   float total_time = 10.f;
+  float sight = 1.f;
   float macro_bin_time = 0.05;
   float rhoL = 50, rhoR = 50;
   string name = "data.csv";
+  int seed = -1;
 
   // Parse command line args.
   ArgParse parser(argc, argv);
   parser.get("trials", trials);
   parser.get("bins", granularity);
   parser.get("time", total_time);
+  parser.get("sight", sight);
   parser.get("tau", macro_bin_time);
   parser.get("rhoL", rhoL);
   parser.get("rhoR", rhoR);
   parser.get("name", name);
+  parser.get("seed", seed);
   // Check for illegal options.
   try {
     parser.check();
@@ -31,18 +35,36 @@ int main(int argc, char **argv) {
   srand48(time(0));
   // Create experiment handler.
   Experiments experiments;
+  if (0<=seed) experiments.setSeed(seed);
   experiments.setGranularity(granularity);
   experiments.setTimeSight(total_time);
   experiments.setMacroBinTime(macro_bin_time);
 
   // ------ Experiments ------ //
 
-  experiments.simulate_number_demon(10, 1, 50, 50);
+  /*
+  float max_value = 0.f, finite_value = 0.f;
+  for (int i=0; i<trials; ++i) {
+    experiments.generate_number_events(rhoL, rhoR);
+
+    float fs = experiments.simulate_number_demon(total_time, sight); // << endl;
+    
+    experiments.resetTimes();
+    auto [ms, bs] = experiments.score();
+    max_value += ms; finite_value += fs;
+  }
+  max_value *= 1./trials; finite_value *= 1./trials;
+  cout << finite_value / max_value << endl;
+  */
+
+  vector<point> data;
+  experiments.number_demon_vary_time_sight(data, total_time, macro_bin_time, 15.f*macro_bin_time, 15.f, trials, rhoL, rhoR);
 
   // --> Look at the S_t/S^*_t stochastic process
-  // experiments.run_single(rhoL, rhoR);
+  // experiments.generate_number_events(rhoL, rhoR);
+  // experiments.score();
   // auto process = experiments.get_score_structure();
-  // print_to_csv(process, "process.csv");
+  // print_to_csv(process, "process-rhoL50-rhoR100.csv");
 
   // --> Generate many scores.
   // vector<float> score_record;

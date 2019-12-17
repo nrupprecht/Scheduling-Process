@@ -17,8 +17,10 @@ public:
 
   // --- Experiments
 
-  //! \brief Run a single simulation given event densities for the right and left sides.
-  point run_single(float, float);
+  //! \brief Run a single scheduling simulation.
+  //!
+  //! The events should be generated before this function is called, e.g. by generate_number_events.
+  point score();
 
   //! \brief Run a simulation many times, fill the vector with the difference between max and baseline scores.
   void generate_scores(vector<float>&, int, float, float);
@@ -37,40 +39,39 @@ public:
   //! Also returns the average max score per unit time and average baseline scores as functions of macrobin granularity.
   void score_vary_bin_granularity(vector<pair<int,float> >&, int, int, int, int, float, float, vector<pair<int,float> >&, vector<pair<int,float> >&);
 
+  void number_demon_vary_time_sight(vector<point>&, float, float, float, int, int, float, float);
 
-
-  void simulate_number_demon(float, float, float, float);
-
+  //! \brief Evaluate the score of a demon that can only see a fixed amount of time into the future, and must recalculate the best schedule whenever it can
+  //! compared to a demon that can see all the events at once.
+  //!
+  //! The events should be generated before this function is called, e.g. by generate_number_events.
+  float simulate_number_demon(float, float);
 
   // --- Accessors
   const auto& get_score_structure() { return schedule.get_score_structure(); }
 
   // --- Mutators
 
+  //! \brief Generate number demon events, poisson point processes with the specified intensities, and each event has a score of 1.
+  void generate_number_events(float, float);
+
   //! \brief Set the macro bin size.
-  void setGranularity(int b) {
-    schedule.set_granularity(b);
-  }
+  void setGranularity(int);
 
   //! \brief Set the time length of a macrobin.
-  void setMacroBinTime(float t) {
-    schedule.set_macro_bin_time(t);
-  }
+  void setMacroBinTime(float);
 
   //! \brief Set the total time that we generate events for.
-  void setTotalTime(float t) {
-    if (t>0) total_time = t;
-  }
+  void setTotalTime(float);
 
   //! \brief Set the time sight of the schedule.
-  void setTimeSight(float t) {
-    if (t>0) {
-      time_sight = t;
-      schedule.set_time_sight(t);
-      if (time_sight>total_time) 
-        setTotalTime(time_sight);
-    }
-  }
+  void setTimeSight(float);
+
+  //! \brief Set time sight to be the total time, and sets the current time to be zero.
+  void resetTimes();
+
+  //! \brief Seed the random number generator
+  void setSeed(unsigned);
 
 private:
   // Create scheduler.
@@ -83,14 +84,10 @@ private:
   float total_time = 0.f;
 
   //! \brief A seed for the random number generators.
-  int seed = 0;
-
-  //! \brief Random device.
-  std::random_device rnd;
+  unsigned seed;
 
   //! \brief Mersenne twister generator.
   std::mt19937 generator;
-
 };
 
 #endif // __EXPERIMENTS_HPP__

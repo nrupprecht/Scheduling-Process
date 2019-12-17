@@ -50,11 +50,11 @@ SRCS    := $(filter-out $(EXCLUDE), $(SRCS1))
 SRCDIRS := $(shell find . -name '*.cpp' -exec dirname {} \; | uniq)
 OBJS    := $(patsubst %.cpp,$(OBJ)/%.o,$(SRCS))
 
-CSTD     = -std=c++14
+CSTD     = -std=c++17
 DEBUG    = -g
 ifeq ($(COMPILER), 0) 
 ifeq ($(DO_OPTIMIZE), 1)
-OPTIMIZE := -O3 -funroll-loops -no-prec-div -restrict -no-inline-max-size -ffast-math
+OPTIMIZE := -O3 -funroll-loops -restrict -no-inline-max-size #-ffast-math -no-prec-div
 endif
 else
 ifeq ($(DO_OPTIMIZE), 1)
