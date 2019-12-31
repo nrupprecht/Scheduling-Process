@@ -5,6 +5,8 @@
 
 typedef pair<float,float> point;
 
+enum class ScoreMode { Score, Number, Default };
+
 class Schedule {
 public:
   //! \brief Default constructor.
@@ -28,13 +30,16 @@ public:
   float base_line_score();
 
   //! \brief Get the score of a set of open intervals.
-  float get_score(const vector<pair<int,int> >&);
+  float get_binning_score(const vector<pair<int,int> >&, ScoreMode=ScoreMode::Default);
 
   //! \brief Get the score of a set of open intervals, only counting events between some min and max times.
-  float get_score(const vector<pair<int,int> >&, float, float);
+  float get_binning_score(const vector<pair<int,int> >&, float, float, ScoreMode=ScoreMode::Default);
 
-  //! \brief Get the score of a microbin.
-  float get_bin_score(int) const;
+  //! \brief Get the score and net event score for a binning.
+  point get_both_binning_score(const vector<pair<int,int> >&);
+
+  //! \brief Get the score from a microbin. This can be set to be either the net number of events, or the actual net event score, or something else.
+  float get_score(const int);
 
   //! \brief Make sure a binning is valid, that the lengths of open and closed intervals is at least macro_bin_size.
   bool valid_binning(const vector<pair<int,int> >&);
@@ -64,6 +69,9 @@ public:
   //! \brief Set the number of micro bins in a macro bin.
   void set_granularity(int);
 
+  //! \brief Set the score mode of the scheduler.
+  void set_score_mode(ScoreMode);
+
   // --- Accessors
 
   //! \brief Get the vector of microbin scores.
@@ -87,12 +95,15 @@ public:
   //! \brief Get the total number of microbins.
   int get_total_micro_bins() { return total_micro_bins; }
 
-//private:
+private:
   //! \brief Compute the schedule structure. Used for finding the max score.
   inline void compute_score_structure(int=-1);
 
   //! \brief Reset everything.
   inline void reset();
+
+  //! \brief What mode we should use to calculate the score.
+  ScoreMode score_mode = ScoreMode::Score;
 
   //! \brief The left and right events: times when they occur, and their weights.
   vector<pair<float, float> > left_events, right_events;
@@ -119,6 +130,8 @@ public:
 
   //! \brief The score of each microbin, micro_bin_score[t] = left_events[in bin t] - right_events[in bin t].
   vector<float> micro_bin_scores;
+  //! \brief The net number of events in each microbin, #left_events[in bin t] - #right_events[in bin t].
+  vector<int> micro_bin_counts;
 
   //! \brief Record the last optimal score. An optimal score of -1 means that it has not been calculated yet.
   float optimal_score = -1.f;

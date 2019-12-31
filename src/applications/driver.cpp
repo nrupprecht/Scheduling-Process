@@ -3,18 +3,21 @@
 int main(int argc, char **argv) {
   // Parameters.
   int trials = 100;
-  int granularity = 10;
+  int bins = 25;
+  int granularity = 50;
   float total_time = 10.f;
   float sight = 1.f;
   float macro_bin_time = 0.05;
   float rhoL = 50, rhoR = 50;
   string name = "data.csv";
   int seed = -1;
+  string mode = "number";
 
   // Parse command line args.
   ArgParse parser(argc, argv);
   parser.get("trials", trials);
-  parser.get("bins", granularity);
+  parser.get("bins", bins);
+  parser.get("granularity", granularity);
   parser.get("time", total_time);
   parser.get("sight", sight);
   parser.get("tau", macro_bin_time);
@@ -22,6 +25,7 @@ int main(int argc, char **argv) {
   parser.get("rhoR", rhoR);
   parser.get("name", name);
   parser.get("seed", seed);
+  parser.get("mode", mode);
   // Check for illegal options.
   try {
     parser.check();
@@ -38,27 +42,29 @@ int main(int argc, char **argv) {
   if (0<=seed) experiments.setSeed(seed);
   experiments.setGranularity(granularity);
   experiments.setTimeSight(total_time);
-  experiments.setMacroBinTime(macro_bin_time);
+  experiments.setTau(macro_bin_time);
+  experiments.setDensities(rhoL, rhoR);
+  // Set demon mode.
+  if (mode=="number") experiments.setDemonMode(DemonMode::Number);
+  if (mode=="energy") experiments.setDemonMode(DemonMode::Energy);
+
+  // Vectors for data.
+  vector<point> data;
+  vector<vector<float> > multidata;
 
   // ------ Experiments ------ //
+  float min_tau = 0.01, max_tau = 0.5;
+  experiments.demon_vary_tau(data, total_time, sight, min_tau, max_tau, bins, trials);
+  print_to_csv(data, name);
+  return 0;
+  
+  // --> Vary system parameters (number density).
+  // experiments.score_vary_system(multidata, rhoL, 0.2*rhoL, 5*rhoL, bins, trials);
+  // print_to_csv(multidata, name);
 
-  /*
-  float max_value = 0.f, finite_value = 0.f;
-  for (int i=0; i<trials; ++i) {
-    experiments.generate_number_events(rhoL, rhoR);
-
-    float fs = experiments.simulate_number_demon(total_time, sight); // << endl;
-    
-    experiments.resetTimes();
-    auto [ms, bs] = experiments.score();
-    max_value += ms; finite_value += fs;
-  }
-  max_value *= 1./trials; finite_value *= 1./trials;
-  cout << finite_value / max_value << endl;
-  */
-
-  vector<point> data;
-  experiments.number_demon_vary_time_sight(data, total_time, macro_bin_time, 15.f*macro_bin_time, 15.f, trials, rhoL, rhoR);
+  // --> Vary the time sight of a number demon.
+  // experiments.number_demon_vary_time_sight(data, total_time, 2*macro_bin_time, 25*macro_bin_time, bins, trials, rhoL, rhoR);
+  // print_to_csv(data, name);
 
   // --> Look at the S_t/S^*_t stochastic process
   // experiments.generate_number_events(rhoL, rhoR);
@@ -73,17 +79,15 @@ int main(int argc, char **argv) {
   // print_to_csv(score_record, name);
   
   // --> See how averege performance (per unit time) changes as total time increases.
-  // vector<vector<float> > growth;
-  // int divisions = 20;
-  // float min_t = 0.5f, max_t = 20.f;
-  // experiments.score_vary_total_time(growth, rhoL, rhoR, min_t, max_t, divisions, trials);
-  // print_to_csv(growth, name);
+  float min_t = 0.5f, max_t = 10.f;
+  experiments.score_vary_total_time(multidata, rhoL, rhoR, min_t, max_t, bins, trials);
+  print_to_csv(multidata, name);
 
   
   // --> See how max score varies as the macro bin granularity increases.
-  // vector<pair<int,float> > data;
-  // experiments.score_vary_bin_granularity(data, 1, granularity, 1, trials, rhoL, rhoR);
-  // print_to_csv(data, name);
+  // vector<pair<int,float> > p_data;
+  // experiments.score_vary_bin_granularity(p_data, 1, granularity, 1, trials, rhoL, rhoR);
+  // print_to_csv(p_data, name);
   
 
   // --> Look at the average structure record.
@@ -122,51 +126,8 @@ int main(int argc, char **argv) {
   */
 
 
-  // --> Compute a grid of max and baseline scores for different nl / nr.
-  /*
-  vector<vector<float> > data2;
-  for (int nl=1; nl<40; ++nl)
-    for (int nr=1; nr<40; ++nr) {
-      vector<float> entry;
-      // Choose some densities.
-      rhoL = 10*nl;
-      rhoR = 10*nr;
-      // First two entries are expected number.
-      entry.push_back(rhoL*macro_bin_time);
-      entry.push_back(rhoR*macro_bin_time);
-      // Vary number of bins
-      for (int b=2; b<=30; b+=4) {
-        float average_best = 0.f, average_base = 0.f;
-        // Set macro bin size.
-        schedule.set_macro_bin_size(b);
-        // Do some number of trials.
-        for (int i=0; i<trials; ++i) {
-          // Create new events.
-          generate_events(left, right, rhoL, rhoR, total_time);
-          schedule.set_events(left, right);
-          // Find the maximum and baseline score.
-          float max_score = schedule.max_score();
-          float base_line_score = schedule.base_line_score();
-          // Calculate ratio.
-          average_best += max_score;
-          average_base += base_line_score;
-        }
-        average_best /= trials;
-        average_base /= trials;
-        // Push back bins and average ratio.
-        entry.push_back(static_cast<float>(b));
-        entry.push_back(average_best);
-        entry.push_back(average_base);
-      }
-      // Add entry
-      data2.push_back(entry);
-    }
-  print_to_csv(data2, "multidata.csv");
-  */
-
-  // vector<vector<float> > data2;
-  // experiments.create_system_grid(data2, 10, 40, 10, 40, 40);
-  // print_to_csv(data2, "multidata-B.csv");
+  // experiments.create_system_grid(multidata, 10, 40, 10, 40, 40);
+  // print_to_csv(multidata, "multidata-B.csv");
 
   return 0;
 }

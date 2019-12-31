@@ -5,27 +5,6 @@ Experiments::Experiments() {
   generator = std::mt19937(seed);
 }
 
-void Experiments::generate_events(vector<point>& left, vector<point>& right, float rhoL, float rhoR, float time) {
-  // Clear vectors.
-  left.clear();
-  right.clear();
-  // Poisson generators.
-  std::poisson_distribution<int> left_poisson(rhoL*time);
-  std::poisson_distribution<int> right_poisson(rhoR*time);
-
-  // Generate some events.
-  int nL = left_poisson(generator);
-  int nR = right_poisson(generator);
-  for (int i=0; i<nL; ++i) {
-    float t1 = drand48()*time;
-    left.push_back(std::make_pair(t1, 1.f));
-  }
-  for (int i=0; i<nR; ++i) {
-    float t2 = drand48()*time;
-    right.push_back(std::make_pair(t2, 1.f));
-  }
-}
-
 point Experiments::score() {
   // Find max and baseline scores.
   float ms = schedule.max_score();
@@ -34,17 +13,19 @@ point Experiments::score() {
   return make_pair(ms, bs);
 }
 
-void Experiments::generate_scores(vector<float>& score_record, int trials, float rhoL, float rhoR) {
+void Experiments::generate_scores(vector<float>& score_record, int trials, float rhoL, float rhoR, bool only_max) {
   vector<point> left, right;
   score_record.clear();
   // Calculate data.
+  setDensities(rhoL, rhoR);
   for (int i=0; i<trials; ++i) {
     // Create new events.
-    generate_events(left, right, rhoL, rhoR, total_time);
+    generate_events(left, right, total_time);
     schedule.set_events(left, right);
     // Find the maximum and baseline score.
     float ms = schedule.max_score(), bs = schedule.base_line_score();
-    score_record.push_back(ms - bs);
+    if (only_max) score_record.push_back(ms);
+    else score_record.push_back(ms - bs);
   }
 }
 
@@ -63,7 +44,8 @@ void Experiments::create_system_grid(vector<vector<float> >& multidata, float mi
       float rhoL = nl*dl + minRL;
       float rhoR = nr*dr + minRR;
       // Generate events
-      generate_events(left, right, rhoL, rhoR, total_time);
+      setDensities(rhoL, rhoR);
+      generate_events(left, right, total_time);
       schedule.set_events(left, right);
       // Find the maximum and baseline score.
       entry.push_back(rhoL*macro_bin_time);
@@ -74,21 +56,45 @@ void Experiments::create_system_grid(vector<vector<float> >& multidata, float mi
     }
 }
 
+void Experiments::score_vary_tau(vector<point>& data, float rhoL, float rhoR, float minT, float maxT, int divisions, int trials) {
+  // Clear old data vector.
+  data.clear();
+  // Make sure no numerical errors occur.
+  divisions = std::max(2, divisions);
+  trials = std::max(1, trials);
+  // Calculate time step.
+  float dt = (maxT - minT)/(divisions-1);
+  // Generate data.
+  for (int iter=0; iter<divisions; ++iter) {
+    // Calculate and set tau.
+    float tau = minT + iter*dt;
+    setTau(tau);
+    // Calculate average score.
+    float ave_score = 0.f;
+    for (int tr=0; tr<trials; ++tr) {
+      generate_events(rhoL, rhoR);
+      ave_score += schedule.max_score();
+    }
+    data.push_back(point(tau, ave_score/trials));
+  }
+}
+
 void Experiments::score_vary_total_time(vector<vector<float> >& growth, float rhoL, float rhoR, float minT, float maxT, int divisions, int trials) {
   // Time step and vectors for events.
   float dt = (maxT-minT)/(divisions-1);
   vector<point> left, right;
   growth.clear();
+  setDensities(rhoL, rhoR);
   // Calculate data.
   for (int j=0; j<divisions; ++j) {
     float time = j*dt + minT, normalization = 1./(trials*time);;
     float ave_max_score = 0.f, ave_base_line_score = 0.f;
+    // Set total time and time sight (they are the same).
+    setTotalTime(time);
+    setTimeSight(time);
     // Compute average score.
     for (int i=0; i<trials; ++i) {
-    // Create new events.
-      generate_events(left, right, rhoL, rhoR, time);
-      schedule.set_time_sight(time);
-      schedule.set_events(left, right);
+      generate_events(rhoL, rhoR);
       // Find the maximum and baseline score.
       ave_max_score += schedule.max_score();
       ave_base_line_score += schedule.base_line_score();
@@ -97,10 +103,27 @@ void Experiments::score_vary_total_time(vector<vector<float> >& growth, float rh
   }
 }
 
+void Experiments::score_vary_system(vector<vector<float> >& data, float rhoL, float minRhoR, float maxRhoR, int divisions, int trials) {
+  data.clear();
+  float drho = (maxRhoR - minRhoR)/(divisions-1);
+  for (int iter=0; iter<divisions; ++iter) {
+    float ave_score = 0.f, baseline_score = 0.f;
+    float rhoR = minRhoR + drho*iter;
+    setDensities(rhoL, rhoR);
+    for (int trial=0; trial<trials; ++trial) {
+      generate_events(rhoL, rhoR);
+      ave_score += schedule.max_score();
+      baseline_score += schedule.base_line_score();
+    }
+    data.push_back(vector<float>{rhoR, ave_score/(trials*total_time), baseline_score/(trials*total_time)});
+  }
+}
+
 void Experiments::score_vary_bin_granularity(vector<pair<int,float> >& data, int minB, int maxB, int dB, int trials, float rhoL, float rhoR) {
   // Vectors for events.
   vector<point> left, right;
   data.clear();
+  setDensities(rhoL, rhoR);
   // Calculate data.
   for (int b=minB; b<=maxB; b += dB) {
     float average_max = 0.f, average_base_line = 0.f;
@@ -109,7 +132,7 @@ void Experiments::score_vary_bin_granularity(vector<pair<int,float> >& data, int
     // Do some number of trials.
     for (int i=0; i<trials; ++i) {
       // Create new events.
-      generate_events(left, right, rhoL, rhoR, total_time);
+      generate_events(left, right, total_time);
       schedule.set_events(left, right);
       // Find the maximum and baseline score.
       float max_score = schedule.max_score();
@@ -131,6 +154,7 @@ void Experiments::score_vary_bin_granularity(vector<pair<int,float> >& data, int
   max_scores.clear();
   base_line_scores.clear();
   float time = schedule.get_time_sight();
+  setDensities(rhoL, rhoR);
   // Calculate data.
   for (int b=minB; b<=maxB; b += dB) {
     float average_max = 0.f, average_base_line = 0.f;
@@ -139,8 +163,7 @@ void Experiments::score_vary_bin_granularity(vector<pair<int,float> >& data, int
     // Do some number of trials.
     for (int i=0; i<trials; ++i) {
       // Create new events.
-      generate_events(left, right, rhoL, rhoR, total_time);
-      schedule.set_events(left, right);
+      generate_events();
       // Find the maximum and baseline score.
       float max_score = schedule.max_score();
       float base_line_score = schedule.base_line_score();
@@ -155,7 +178,7 @@ void Experiments::score_vary_bin_granularity(vector<pair<int,float> >& data, int
   }
 }
 
-void Experiments::number_demon_vary_time_sight(vector<point>& data, float time, float min_t_sight, float max_t_sight, int bins, int trials, float rhoL, float rhoR) {
+void Experiments::demon_vary_time_sight(vector<point>& data, float time, float min_t_sight, float max_t_sight, int bins, int trials, float rhoL, float rhoR) {
   // Make sure the data vector is empty.
   data.clear();
   // Run all time sights [trials] number of times.
@@ -164,15 +187,31 @@ void Experiments::number_demon_vary_time_sight(vector<point>& data, float time, 
     float t_sight = min_t_sight + b*dsight;
     float ave_score = 0.f;
     for (int iter=0; iter<trials; ++iter) {
-      generate_number_events(rhoL, rhoR);
-      ave_score += simulate_number_demon(time, t_sight);
+      generate_events(rhoL, rhoR);
+      ave_score += simulate_demon(time, t_sight);
     }
-    ave_score /= trials;
-    data.push_back(make_pair(t_sight, ave_score));
+    data.push_back(make_pair(t_sight, ave_score/trials));
   }
 }
 
-float Experiments::simulate_number_demon(float time, float t_sight) {
+void Experiments::demon_vary_tau(vector<point>& data, float time, float t_sight, float min_tau, float max_tau, int bins, int trials) {
+  // Make sure the data vector is empty.
+  data.clear();
+  // Run all time sights [trials] number of times.
+  float dt = (max_tau - min_tau)/(bins-1);
+  for (int iter=0; iter<bins; ++iter) {
+    float tau = min_tau + iter*dt;
+    setTau(tau);
+    float ave_score = 0.f;
+    for (int trial=0; trial<trials; ++trial) {
+      generate_events();
+      ave_score += simulate_demon(time, t_sight);
+    }
+    data.push_back(make_pair(tau, ave_score/trials));
+  }
+}
+
+float Experiments::simulate_demon(float time, float t_sight) {
   // Set total time and time sight.
   setTotalTime(time);
   setTimeSight(t_sight);
@@ -234,7 +273,7 @@ float Experiments::simulate_number_demon(float time, float t_sight) {
     // Tally up score between now and the new time.
     if (is_open)
       for (int i=0; i<move_bins; ++i)
-        total_score += schedule.get_bin_score(i);
+        total_score += schedule.get_score(i);
 
     // Advance time.
     current_time += move_bins*micro_bin_time;
@@ -243,7 +282,7 @@ float Experiments::simulate_number_demon(float time, float t_sight) {
     // Move schedule time forward.
     schedule.set_current_time(current_time);
     schedule.set_time_sight(std::min(t_sight, time - current_time));
-    // Compute new max score/optimal binning.
+    // Compute new max score/optimal binning. We really only need to recompute this if a new event appeared.
     max_score = schedule.max_score(is_open, state_length);
     binning = schedule.optimal_binning(is_open, state_length);
   }
@@ -267,59 +306,64 @@ float Experiments::simulate_number_demon(float time, float t_sight) {
   // Total up the rest of the score.
   total_score += max_score;
 
-
-
-  // cout << "Final bit of demon:\n";
-  // for (auto p : binning)
-  //   cout << "(" << p.first + cumulative_bins << ", " << p.second + cumulative_bins << ") ";
-  // cout << endl << "Score: " << max_score << endl << endl;
-
-  // cout << "Final binning:\n";
-  // for (auto p : finite_demon_binning)
-  //   cout << "(" << p.first << ", " << p.second << ") ";
-  // cout << endl;
-
-
-  // resetTimes();
-  // schedule.compute_micro_bin_scores();
-  // cout << "Check: " << schedule.get_score(finite_demon_binning) << endl;
-  // cout << "Vs: " << total_score << endl;
-
-
-  // Return the total score for the sight limited demon.
-  return total_score;
+  // Return the average score rate for the sight limited demon.
+  return total_score / time;
 }
 
-void Experiments::generate_number_events(float rhoL, float rhoR) {
+void Experiments::generate_events(const float rhoL, const float rhoR) {
   // Generate all events.
   vector<point> left, right;
-  generate_events(left, right, rhoL, rhoR, total_time);
+  setDensities(rhoL, rhoR);
+  generate_events(left, right, total_time);
   schedule.set_events(left, right);
 }
 
+void Experiments::generate_events(vector<point>& left, vector<point>& right, float time) {
+  // Clear vectors.
+  left.clear();
+  right.clear();
+  // Generate some events.
+  fill_event_vector(left, rho_left, beta_left, time);
+  fill_event_vector(right, rho_right, beta_right, time);
+}
+
+void Experiments::generate_events() {
+  generate_events(rho_left, rho_right);
+}
+
 //! \brief Set the macro bin size.
-void Experiments::setGranularity(int b) {
+void Experiments::setGranularity(const int b) {
   schedule.set_granularity(b);
 }
 
 //! \brief Set the time length of a macrobin.
-void Experiments::setMacroBinTime(float t) {
+void Experiments::setTau(const float t) {
   schedule.set_macro_bin_time(t);
 }
 
 //! \brief Set the total time that we generate events for.
-void Experiments::setTotalTime(float t) {
+void Experiments::setTotalTime(const float t) {
   if (t>0) total_time = t;
 }
 
 //! \brief Set the time sight of the schedule.
-void Experiments::setTimeSight(float t) {
+void Experiments::setTimeSight(const float t) {
   if (t>0) {
     time_sight = t;
     schedule.set_time_sight(t);
     if (time_sight>total_time) 
       setTotalTime(time_sight);
   }
+}
+
+void Experiments::setDimensionality(const unsigned int d) {
+  dimensionality = d;
+  if (d==1) gate_area = 1.f;
+}
+
+  //! \brief Set the area of the demon's gate (if dimensionality>1).
+void Experiments::setArea(const float A) {
+  if (dimensionality>1) gate_area = A;
 }
 
 void Experiments::resetTimes() {
@@ -330,4 +374,50 @@ void Experiments::resetTimes() {
 void Experiments::setSeed(unsigned s) {
   seed = s;
   generator = std::mt19937(seed);
+}
+
+void Experiments::setDemonMode(DemonMode mode) {
+  demon_mode = mode;
+}
+
+void Experiments::setDensities(float rl, float rr) {
+  rho_left = rl;
+  rho_right = rr;
+}
+
+void Experiments::setBetas(float bl, float br) {
+  beta_left = bl;
+  beta_right = br;
+}
+
+inline void Experiments::fill_event_vector(vector<point>& list, const float rho, const float beta, const float time) {
+  // Clear list.
+  list.clear();
+  // Determine the number of events that we should create. The number of events is the same for any demon.
+  float point_intensity = rho*gate_area/sqrt(2*PI*particle_mass*beta);
+  std::poisson_distribution<int> subsystem_poisson(point_intensity*time);
+  int number_of_events = subsystem_poisson(generator);
+  // Generate events.
+  switch (demon_mode) {
+    case (DemonMode::Number): {
+      for (int i=0; i<number_of_events; ++i)
+        list.push_back(std::make_pair(drand48()*time, 1.f));
+      break;
+    }
+    case (DemonMode::Energy): {
+      // E ~ Gamma[(d+1)/2, \beta], and c++ <random> uses 1/\beta for \beta
+      energy_distribution = std::gamma_distribution<float>(0.5*(dimensionality+1.), 1./beta); 
+      for (int i=0; i<number_of_events; ++i) {
+        float t1 = drand48()*time;
+        float energy = energy_distribution(generator);
+        list.push_back(std::make_pair(t1, energy));
+      }
+      break;
+    }
+    default: {
+      cout << "Invalid demon mode.\n";
+      break;
+    }
+  }
+
 }

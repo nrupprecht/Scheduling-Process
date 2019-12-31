@@ -63,4 +63,11 @@ template<typename T> inline bool print_to_csv(const vector<vector<T> >& data, co
   return true;
 }
 
+template<typename T> inline T sqr(const T a) { 
+  return a*a; 
+}
+
+//! \brief Define pi.
+constexpr float PI = 3.14159265;
+
 #endif // __PREDICTIVE_UTILITY_HPP__
